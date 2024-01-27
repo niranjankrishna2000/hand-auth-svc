@@ -66,7 +66,7 @@ func (s *Server) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginResp
 
 	return &pb.LoginResponse{
 		Status: http.StatusOK,
-		Token:  token,
+		Token:  "Bearer "+token,
 		User:   &pb.User{Name: user.Name, Email: user.Email, Phone: user.Phone},
 	}, nil
 }
