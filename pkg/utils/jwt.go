@@ -96,7 +96,7 @@ func (w *JwtWrapper) GenerateTokenAdmin(Admin models.Admin) (signedToken string,
 		return "", err
 	}
 
-	return signedToken, nil
+	return "Bearer "+signedToken, nil
 }
 
 func (w *JwtWrapper) ValidateTokenAdmin(signedToken string) (claims *jwtClaimsAdmin, err error) {
@@ -119,7 +119,10 @@ func (w *JwtWrapper) ValidateTokenAdmin(signedToken string) (claims *jwtClaimsAd
 	}
 
 	if claims.ExpiresAt < time.Now().Local().Unix() {
-		return nil, errors.New("JWT is expired")
+		return nil, errors.New("jwt is expired")
+	}
+	if claims.Role!="Admin"{
+		return nil, errors.New("unauthorized")
 	}
 
 	return claims, nil
