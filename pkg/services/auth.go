@@ -49,12 +49,13 @@ func (s *Server) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginResp
 	var user models.User
 
 	if result := s.H.DB.Where(&models.User{Email: req.Email}).First(&user); result.Error != nil {
+		log.Println(result.Error)
 		return &pb.LoginResponse{
 			Status: http.StatusNotFound,
 			Error:  "User not found",
 			Token:  "",
 			User:   nil,
-		}, result.Error
+		}, errors.New("user not found")
 	}
 
 	match := utils.CheckPasswordHash(req.Password, user.Password)

@@ -59,7 +59,7 @@ func (w *JwtWrapper) ValidateToken(signedToken string) (claims *jwtClaims, err e
 	)
 
 	if err != nil {
-		return
+		return nil ,errors.New("couldn't parse token")
 	}
 
 	claims, ok := token.Claims.(*jwtClaims)
@@ -69,7 +69,7 @@ func (w *JwtWrapper) ValidateToken(signedToken string) (claims *jwtClaims, err e
 	}
 
 	if claims.ExpiresAt < time.Now().Local().Unix() {
-		return nil, errors.New("JWT is expired")
+		return nil, errors.New("jwt is expired")
 	}
 
 	return claims, nil
