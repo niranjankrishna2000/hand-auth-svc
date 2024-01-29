@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 
@@ -26,7 +27,8 @@ func (s *Server) SignUp(ctx context.Context, req *pb.SignUpRequest) (*pb.SignUpR
 		return &pb.SignUpResponse{
 			Status: http.StatusBadRequest,
 			Error:  "E-Mail already exists",
-		}, nil
+			User:   nil,
+		}, result.Error
 	}
 
 	user.Email = req.Email
@@ -38,7 +40,7 @@ func (s *Server) SignUp(ctx context.Context, req *pb.SignUpRequest) (*pb.SignUpR
 
 	return &pb.SignUpResponse{
 		Status: http.StatusCreated,
-		Error:  "",
+		Error:  "No errors. Successfully Created",
 		User:   &pb.User{Name: user.Name, Email: user.Email, Phone: user.Phone},
 	}, nil
 }
@@ -50,7 +52,9 @@ func (s *Server) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginResp
 		return &pb.LoginResponse{
 			Status: http.StatusNotFound,
 			Error:  "User not found",
-		}, nil
+			Token:  "",
+			User:   nil,
+		}, result.Error
 	}
 
 	match := utils.CheckPasswordHash(req.Password, user.Password)
@@ -59,14 +63,25 @@ func (s *Server) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginResp
 		return &pb.LoginResponse{
 			Status: http.StatusNotFound,
 			Error:  "Password not match",
-		}, nil
+			Token:  "",
+			User:   nil,
+		}, errors.New("wrong password")
 	}
 
-	token, _ := s.Jwt.GenerateToken(user)
+	token, err := s.Jwt.GenerateToken(user)
+	if err != nil {
+		return &pb.LoginResponse{
+			Status: http.StatusNotFound,
+			Error:  "Could Not Generate Token",
+			Token:  "",
+			User:   nil,
+		}, err
+	}
 
 	return &pb.LoginResponse{
 		Status: http.StatusOK,
-		Token:  "Bearer "+token,
+		Error: "No errors. Successfully logged In",
+		Token:  "Bearer " + token,
 		User:   &pb.User{Name: user.Name, Email: user.Email, Phone: user.Phone},
 	}, nil
 }
@@ -78,7 +93,8 @@ func (s *Server) AdminLogin(ctx context.Context, req *pb.AdminLoginRequest) (*pb
 		return &pb.AdminLoginResponse{
 			Status: http.StatusNotFound,
 			Error:  "Admin not found",
-		}, nil
+			Token: "",
+		}, result.Error
 	}
 
 	match := utils.CheckPasswordHash(req.Password, Admin.Password)
@@ -87,24 +103,32 @@ func (s *Server) AdminLogin(ctx context.Context, req *pb.AdminLoginRequest) (*pb
 		return &pb.AdminLoginResponse{
 			Status: http.StatusNotFound,
 			Error:  "password wrong",
-		}, nil
+			Token: "",
+		}, errors.New("wrong Passwords")
 	}
 
-	token, _ := s.Jwt.GenerateTokenAdmin(Admin)
+	token, err := s.Jwt.GenerateTokenAdmin(Admin)
+	if err != nil {
+		return &pb.AdminLoginResponse{
+			Status: http.StatusNotFound,
+			Error:  "Could Not Generate Token",
+			Token:  "",
+		}, err
+	}
 
 	return &pb.AdminLoginResponse{
 		Status: http.StatusOK,
+		Error: "No errors. Successfully Logged In",
 		Token:  token,
 	}, nil
 }
 func (s *Server) Validate(ctx context.Context, req *pb.ValidateRequest) (*pb.ValidateResponse, error) {
 	claims, err := s.Jwt.ValidateToken(req.Token)
-
 	if err != nil {
 		return &pb.ValidateResponse{
 			Status: http.StatusBadRequest,
-			Error:  err.Error(),
-		}, nil
+			Error:  "Token Invalid",
+		}, err
 	}
 
 	var user models.User
@@ -113,15 +137,39 @@ func (s *Server) Validate(ctx context.Context, req *pb.ValidateRequest) (*pb.Val
 		return &pb.ValidateResponse{
 			Status: http.StatusNotFound,
 			Error:  "User not found",
-		}, nil
+		}, result.Error
 	}
 
 	return &pb.ValidateResponse{
 		Status: http.StatusOK,
+		Error: "No errors. Successfully Validated",
 		UserId: user.Id,
 	}, nil
 }
+func (s *Server) AdminValidate(ctx context.Context, req *pb.ValidateRequest) (*pb.AdminValidateResponse, error) {
+	claims, err := s.Jwt.ValidateTokenAdmin(req.Token)
 
+	if err != nil {
+		return &pb.AdminValidateResponse{
+			Status: http.StatusBadRequest,
+			Error:  "Token Invalid",
+		}, err
+	}
+
+	var user models.Admin
+
+	if result := s.H.DB.Where(&models.User{Email: claims.Email}).First(&user); result.Error != nil {
+		return &pb.AdminValidateResponse{
+			Status: http.StatusNotFound,
+			Error:  "User not found",
+		}, result.Error
+	}
+
+	return &pb.AdminValidateResponse{
+		Status: http.StatusOK,
+		Error: "No errors. Token Valid",
+	}, nil
+}
 func (s *Server) LoginWithOtp(ctx context.Context, req *pb.LoginWithOtpRequest) (*pb.LoginWithOtpResponse, error) {
 	var user models.User
 
@@ -129,7 +177,7 @@ func (s *Server) LoginWithOtp(ctx context.Context, req *pb.LoginWithOtpRequest) 
 		return &pb.LoginWithOtpResponse{
 			Status: http.StatusNotFound,
 			Error:  "User not found",
-		}, nil
+		}, result.Error
 	}
 
 	utils.TwilioSetup(viper.GetString("ACCOUNTSID"), viper.GetString("AUTHTOKEN"))
@@ -138,11 +186,12 @@ func (s *Server) LoginWithOtp(ctx context.Context, req *pb.LoginWithOtpRequest) 
 		return &pb.LoginWithOtpResponse{
 			Status: http.StatusNotFound,
 			Error:  "Error while generating OTP...",
-		}, nil
+		}, err
 	}
 
 	return &pb.LoginWithOtpResponse{
 		Status: http.StatusOK,
+		Error: "No Errors. Successfully sent Otp",
 	}, nil
 }
 func (s *Server) OtpValidate(ctx context.Context, req *pb.OtpValidationRequest) (*pb.OtpValidationResponse, error) {
@@ -152,14 +201,16 @@ func (s *Server) OtpValidate(ctx context.Context, req *pb.OtpValidationRequest) 
 		return &pb.OtpValidationResponse{
 			Status: http.StatusNotFound,
 			Error:  "Record not found",
-		}, nil
+			Token: "",
+		}, result.Error
 	}
 
 	if req.Password != req.Confirm {
 		return &pb.OtpValidationResponse{
 			Status: http.StatusNotFound,
 			Error:  "Password Not same",
-		}, nil
+			Token: "",
+		}, errors.New("password mismatch")
 	}
 	utils.TwilioSetup(viper.GetString("ACCOUNTSID"), viper.GetString("AUTHTOKEN"))
 	err := utils.TwilioVerifyOTP(viper.GetString("SERVICESID"), req.Otp, req.Phone)
@@ -167,7 +218,8 @@ func (s *Server) OtpValidate(ctx context.Context, req *pb.OtpValidationRequest) 
 		return &pb.OtpValidationResponse{
 			Status: http.StatusNotFound,
 			Error:  "error while verifying",
-		}, nil
+			Token: "",
+		}, err
 	}
 
 	err = s.H.DB.Exec("UPDATE users SET password=? WHERE id=?", req.Password, user.Id).Error
@@ -175,13 +227,21 @@ func (s *Server) OtpValidate(ctx context.Context, req *pb.OtpValidationRequest) 
 		return &pb.OtpValidationResponse{
 			Status: http.StatusBadGateway,
 			Error:  "could not change password",
-		}, nil
+			Token: "",
+		}, err
 	}
 
-	token, _ := s.Jwt.GenerateToken(user)
-
+	token, err := s.Jwt.GenerateToken(user)
+	if err != nil {
+		return &pb.OtpValidationResponse{
+			Status: http.StatusBadGateway,
+			Error:  "could not generate token",
+			Token: "",
+		}, err
+	}
 	return &pb.OtpValidationResponse{
 		Status: http.StatusOK,
+		Error: "No errors. Successfully logged in",
 		Token:  token,
 	}, nil
 }
@@ -194,12 +254,14 @@ func (s *Server) GetUserDetails(ctx context.Context, req *pb.GetUserDetailsReque
 		return &pb.GetUserDetailsResponse{
 			Status: http.StatusNotFound,
 			Error:  "User not found",
-		}, nil
+			User: nil,
+		}, result.Error
 	}
 
 	return &pb.GetUserDetailsResponse{
 		Status: http.StatusOK,
 		User:   &pb.User{Name: user.Name, Email: user.Email, Phone: user.Phone},
+		Error: "No errors. Successfully obtained user",
 	}, nil
 }
 
@@ -213,6 +275,7 @@ func (s *Server) ChangeUserPermission(ctx context.Context, req *pb.ChangeUserPer
 		return &pb.ChangeUserPermissionResponse{
 			Status: http.StatusBadRequest,
 			Error:  "couldn't get user from DB",
+			User: nil,
 		}, err
 	}
 	if userdetails.Status == "active" {
@@ -223,7 +286,7 @@ func (s *Server) ChangeUserPermission(ctx context.Context, req *pb.ChangeUserPer
 	err := s.H.DB.Exec("UPDATE users set status = ? where id = ?", userdetails.Status, req.Id).Error
 	if err != nil {
 		log.Println(err)
-		return &pb.ChangeUserPermissionResponse{Status: http.StatusBadGateway, Error: err.Error()}, err
+		return &pb.ChangeUserPermissionResponse{Status: http.StatusBadGateway, Error: "Couldnt update permission"}, err
 	}
 
 	log.Println("user:", userdetails)
@@ -272,4 +335,3 @@ func (s *Server) UserList(ctx context.Context, req *pb.UserListRequest) (*pb.Use
 	}, nil
 
 }
-
